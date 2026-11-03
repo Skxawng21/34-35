@@ -27,10 +27,11 @@ const pool = mysql.createPool({
 app.post('/api/register', async (req, res) => {
     const { login, password } = req.body;
     try {
-        // В реальном проекте пароль нужно хэшировать (bcrypt), здесь для простоты оставляем текстом
         await pool.query('INSERT INTO users (login, password) VALUES (?, ?)', [login, password]);
         res.json({ success: true, message: 'Пользователь зарегистрирован' });
     } catch (error) {
+        console.error("ОШИБКА БД:", error.message);
+
         res.status(400).json({ success: false, message: 'Логин уже занят или ошибка БД' });
     }
 });
@@ -39,9 +40,12 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
     const { login, password } = req.body;
     try {
-        const [rows] = await pool.query('SELECT * FROM users WHERE login = ? AND password = ?', [login, password]);
+        console.log("Попытка входа. Пришло с фронтенда:", req.body);
+        // Теперь мы забираем из базы не только id и login, но и role
+        const [rows] = await pool.query('SELECT id, login, role FROM users WHERE login = ? AND password = ?', [login, password]);
         if (rows.length > 0) {
-            res.json({ success: true, user: { id: rows[0].id, login: rows[0].login } });
+            // Отдаем пользователя вместе с его ролью
+            res.json({ success: true, user: rows[0] }); 
         } else {
             res.status(401).json({ success: false, message: 'Неверный логин или пароль' });
         }
@@ -64,8 +68,14 @@ app.get('/api/dishes', async (req, res) => {
 
 // Добавить блюдо
 app.post('/api/dishes', async (req, res) => {
-    const { name, composition, price, cooking_time, method } = req.body;
+    const { name, composition, price, cooking_time, method, userId } = req.body;
     try {
+        // Проверяем, является ли пользователь админом
+        const [user] = await pool.query('SELECT role FROM users WHERE id = ?', [userId]);
+        if (user.length === 0 || user[0].role !== 'admin') {
+            return res.status(403).json({ message: 'Доступ запрещен. Вы не администратор.' });
+        }
+
         await pool.query(
             'INSERT INTO dishes (name, composition, price, cooking_time, method) VALUES (?, ?, ?, ?, ?)',
             [name, composition, price, cooking_time, method]
@@ -76,6 +86,21 @@ app.post('/api/dishes', async (req, res) => {
     }
 });
 
+// Удалить блюдо (Только для админа)
+app.delete('/api/dishes/:id/:userId', async (req, res) => {
+    const { id, userId } = req.params;
+    try {
+        const [user] = await pool.query('SELECT role FROM users WHERE id = ?', [userId]);
+        if (user.length === 0 || user[0].role !== 'admin') {
+            return res.status(403).json({ message: 'Доступ запрещен.' });
+        }
+
+        await pool.query('DELETE FROM dishes WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Блюдо удалено' });
+    } catch (error) {
+        res.status(500).json({ message: 'Ошибка при удалении' });
+    }
+});
 // Обновить блюдо
 app.put('/api/dishes/:id', async (req, res) => {
     const { id } = req.params;
@@ -88,17 +113,6 @@ app.put('/api/dishes/:id', async (req, res) => {
         res.json({ success: true, message: 'Блюдо обновлено' });
     } catch (error) {
         res.status(500).json({ message: 'Ошибка при обновлении' });
-    }
-});
-
-// Удалить блюдо
-app.delete('/api/dishes/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        await pool.query('DELETE FROM dishes WHERE id = ?', [id]);
-        res.json({ success: true, message: 'Блюдо удалено' });
-    } catch (error) {
-        res.status(500).json({ message: 'Ошибка при удалении' });
     }
 });
 
@@ -127,7 +141,7 @@ app.post('/api/cart', async (req, res) => {
     try {
         // Проверяем, есть ли уже это блюдо в корзине
         const [existing] = await pool.query('SELECT * FROM cart WHERE user_id = ? AND dish_id = ?', [userId, dishId]);
-        
+
         if (existing.length > 0) {
             // Если есть, увеличиваем количество (максимум 3, как сказано в задании)
             const newQuantity = existing[0].quantity + 1;
@@ -145,7 +159,7 @@ app.post('/api/cart', async (req, res) => {
     }
 });
 
-// Обновить количество (или удалить, если 0)
+// Обновить количество 
 app.put('/api/cart/:cartId', async (req, res) => {
     const { cartId } = req.params;
     const { quantity } = req.body;
@@ -187,5 +201,5 @@ app.get('/api/search', async (req, res) => {
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
+    console.log(`Сервер запущен на порту http://localhost:${PORT}/`);
 });

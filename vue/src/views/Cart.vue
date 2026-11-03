@@ -19,6 +19,7 @@
 
 <script>
 import axios from 'axios';
+import { useAuth } from '../auth.js';
 
 export default {
     data() {
@@ -26,16 +27,27 @@ export default {
             cart: []
         }
     },
+    setup() {
+        const { user } = useAuth();
+        return { user };
+    },
     mounted() {
-        this.fetchCart();
+        // Если пользователь есть - грузим корзину
+        if (this.user) {
+            this.fetchCart();
+        } else {
+            this.$router.push('/login');
+        }
     },
     methods: {
         async fetchCart() {
-            const user = JSON.parse(localStorage.getItem('user'));
-            if (!user) return this.$router.push('/login');
-
-            const res = await axios.get(`http://localhost:3000/api/cart/${user.id}`);
-            this.cart = res.data;
+            try {
+                // Используем this.user.id
+                const res = await axios.get(`http://localhost:3000/api/cart/${this.user.id}`);
+                this.cart = res.data;
+            } catch (err) {
+                console.error(err);
+            }
         },
         async updateQty(cartId, newQty) {
             if (newQty < 1) {
@@ -54,9 +66,9 @@ export default {
             this.fetchCart();
         },
         async order() {
-            const user = JSON.parse(localStorage.getItem('user'));
             if (confirm('Подтвердить заказ?')) {
-                await axios.post('http://localhost:3000/api/order', { userId: user.id });
+                // Используем this.user.id
+                await axios.post('http://localhost:3000/api/order', { userId: this.user.id });
                 alert('Заказ оформлен!');
                 this.fetchCart();
             }

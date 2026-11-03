@@ -2,9 +2,9 @@
     <div class="container">
         <h2>Магазин</h2>
 
-        <!-- Форма добавления (Drag and Drop) -->
-        <div class="add-form">
-            <h3>Добавить блюдо (перетащите фото)</h3>
+        <!-- Форма добавления (Видна ТОЛЬКО администратору) -->
+        <div v-if="isAdmin" class="add-form">
+            <h3>Добавить блюдо (Только для админа)</h3>
             <div class="drop-zone" @dragover.prevent @drop.prevent="handleDrop">
                 Перетащите изображение сюда ({{ imageName || 'не выбрано' }})
             </div>
@@ -29,8 +29,13 @@
                 <p><b>Время готовки:</b> {{ dish.cooking_time }}</p>
                 <p><b>Способ:</b> {{ dish.method }}</p>
 
-                <button @click="addToCart(dish.id)">В корзину</button>
-                <button @click="deleteDish(dish.id)" style="background: red; color: white;">Удалить</button>
+                <!-- Кнопка "В корзину" доступна всем авторизованным -->
+                <button @click="addToCart(dish.id)" class="btn-cart">В корзину</button>
+
+                <!-- Кнопка "Удалить" доступна ТОЛЬКО админу -->
+                <button v-if="isAdmin" @click="deleteDish(dish.id)" class="btn-delete">
+                    Удалить
+                </button>
             </div>
         </div>
     </div>
@@ -38,6 +43,7 @@
 
 <script>
 import axios from 'axios';
+import { useAuth } from '../auth.js';
 
 export default {
     data() {
@@ -46,6 +52,17 @@ export default {
             openDishes: [],
             newDish: { name: '', price: '', composition: '', cooking_time: '30 мин', method: 'В духовке' },
             imageName: ''
+        }
+    },
+    setup() {
+        // Получаем реактивного пользователя
+        const { user } = useAuth();
+        return { user };
+    },
+    computed: {
+        isAdmin() {
+            // Проверяем роль через реактивного пользователя
+            return this.user && this.user.role === 'admin';
         }
     },
     mounted() {
@@ -67,20 +84,27 @@ export default {
             return this.openDishes.includes(id);
         },
         async addToCart(dishId) {
-            const user = JSON.parse(localStorage.getItem('user'));
-            if (!user) return alert('Авторизуйтесь!');
+            if (!this.user) return alert('Авторизуйтесь!');
 
             try {
-                await axios.post('http://localhost:3000/api/cart', { userId: user.id, dishId });
+                // Используем this.user.id
+                await axios.post('http://localhost:3000/api/cart', { userId: this.user.id, dishId });
                 alert('Добавлено в корзину!');
             } catch (err) {
                 alert(err.response?.data?.message || 'Ошибка');
             }
         },
         async deleteDish(id) {
+            if (!this.user) return;
+
             if (confirm('Удалить блюдо?')) {
-                await axios.delete(`http://localhost:3000/api/dishes/${id}`);
-                this.fetchDishes(); // Обновить список
+                try {
+                    // Передаем ID пользователя на сервер
+                    await axios.delete(`http://localhost:3000/api/dishes/${id}/${this.user.id}`);
+                    this.fetchDishes();
+                } catch (err) {
+                    alert(err.response?.data?.message || 'Ошибка удаления');
+                }
             }
         },
         handleDrop(event) {
@@ -88,10 +112,20 @@ export default {
             if (file) this.imageName = file.name;
         },
         async addDish() {
-            await axios.post('http://localhost:3000/api/dishes', this.newDish);
-            alert('Блюдо добавлено!');
-            this.newDish = { name: '', price: '', composition: '', cooking_time: '30 мин', method: 'В духовке' };
-            this.fetchDishes();
+            if (!this.user) return;
+
+            try {
+                await axios.post('http://localhost:3000/api/dishes', {
+                    ...this.newDish,
+                    userId: this.user.id
+                });
+                alert('Блюдо добавлено!');
+                this.newDish = { name: '', price: '', composition: '', cooking_time: '30 мин', method: 'В духовке' };
+                this.imageName = '';
+                this.fetchDishes();
+            } catch (err) {
+                alert(err.response?.data?.message || 'Ошибка добавления');
+            }
         }
     }
 }
@@ -101,6 +135,7 @@ export default {
 .container {
     max-width: 600px;
     margin: 0 auto;
+    padding: 20px;
 }
 
 .dish-card {
@@ -122,16 +157,36 @@ export default {
 }
 
 .drop-zone {
-    border: 2px dashed #ccc;
+    border: 2px dashed #4CAF50;
     padding: 20px;
     text-align: center;
     margin-bottom: 10px;
+    background: #e8f5e9;
+    cursor: pointer;
 }
 
 .add-form input {
     display: block;
     width: 100%;
     margin-bottom: 5px;
-    padding: 5px;
+    padding: 8px;
+    box-sizing: border-box;
+}
+
+.btn-cart {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.btn-delete {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    cursor: pointer;
 }
 </style>
